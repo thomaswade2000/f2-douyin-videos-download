@@ -103,7 +103,9 @@ class BaseDownloader(M3U8DownloadMixin, BaseCrawler):
         """
 
         try:
-            response = await self.aclient.send(request, stream=True)
+            response = await self.aclient.send(
+                request, stream=True, follow_redirects=True
+            )
             async for chunk in response.aiter_bytes(get_chunk_size(content_length)):
                 if SignalManager.is_shutdown_signaled():
                     break
