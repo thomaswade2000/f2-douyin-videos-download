@@ -318,6 +318,10 @@ class UserPostFilter(JSONModel):
         )
 
     @property
+    def video_id(self):
+        return self._get_list_attr_value("$.aweme_list[*].video.play_addr.uri")
+
+    @property
     def video_play_addr(self):
         return self._get_list_attr_value(
             "$.aweme_list[*].video.bit_rate[0].play_addr.url_list"
@@ -1472,6 +1476,10 @@ class PostDetailFilter(JSONModel):
         return [extract_bit_rate(aweme) for aweme in bit_rate_data]
 
     @property
+    def video_id(self):
+        return self._get_attr_value("$.aweme_detail.video.play_addr.uri")
+
+    @property
     def video_play_addr(self):
         return self._get_attr_value(
             "$.aweme_detail.video.bit_rate[0].play_addr.url_list"
@@ -2259,6 +2267,10 @@ class FriendFeedFilter(JSONModel):
         ]
 
     @property
+    def video_id(self):
+        return self._get_list_attr_value("$.data[*].aweme.video.play_addr.uri")
+
+    @property
     def video_play_addr(self):
         return self._get_list_attr_value(
             "$.data[*].aweme.video.bit_rate[0].play_addr.url_list"
@@ -2807,6 +2819,10 @@ class HomePostSearchFilter(JSONModel):
         ]
 
         return animated_covers
+
+    @property
+    def video_id(self):
+        return self._get_list_attr_value("$.aweme_list[*].item.video.play_addr.uri")
 
     @property
     def video_play_addr(self):

@@ -238,6 +238,7 @@ class AsyncVideoDB(BaseDB):
             "is_ads": "TEXT",
             "is_story": "TEXT",
             "is_top": "TEXT",
+            "video_id": "TEXT",
             "video_bit_rate": "JSON",
             "video_play_addr": "TEXT",
             "images": "JSON",
