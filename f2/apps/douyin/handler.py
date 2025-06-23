@@ -2268,7 +2268,7 @@ class DouyinHandler:
         authentication_token: str = "",
         duration: int = 0,
         format: str = "json",
-    ) -> PostDanmakuFilter:
+    ) -> PostTimeDanmakuFilter:
         """
         用于获取指定时间段内的作品弹幕列表。
         Args:
@@ -2299,7 +2299,7 @@ class DouyinHandler:
                 format=format,
             )
             response = await crawler.fetch_post_time_danmaku(params)
-            danmaku = PostDanmakuFilter(response)
+            danmaku = PostTimeDanmakuFilter(response)
 
         if danmaku.status_code != 0:
             logger.warning(_("获取弹幕失败：{0}").format(danmaku.status_msg))
