@@ -683,7 +683,7 @@ outline: [2,3]
 | aweme_id| str | 作品ID |
 | start_time| int | 起始时间戳，秒级 |
 | end_time| int | 结束时间戳，秒级 |
-| authentication_token| str | 认作品证令牌 |
+| authentication_token| str | 作品认证令牌 |
 | duration| int | 视频时长，单位为毫秒 |
 | format| str | 返回格式，默认为json |
 
