@@ -43,6 +43,9 @@ def main() -> None:
         "[b]f2[/b] [magenta][Option] [/magenta][cyan][Args][/cyan] [magenta]<apps> [/magenta][cyan][COMMAND]"
     )
     table.add_row(_("例：f2 -d DEBUG dy 日志级别为调试运行"))
+    table.add_row("")
+    table.add_row("[b]f2[/b] [magenta]config-wizard[/magenta]")
+    table.add_row(_("🧙‍♂️ 启动配置向导，交互式生成配置文件"))
     console.print(
         Panel(table, border_style="bold", title="使用方法 | Usage", title_align="left")
     )

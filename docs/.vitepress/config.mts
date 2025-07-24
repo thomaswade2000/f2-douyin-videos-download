@@ -101,6 +101,10 @@ export default defineConfig({
               items: [{ text: '扩展数据模型', link: '/guide/custom-model' }],
             },
             {
+              text: '配置向导',
+              items: [{ text: '配置向导', link: '/guide/config-wizard' }],
+            },
+            {
               text: '开发者接口',
               items: [
                 { text: 'Bark', link: '/guide/apps/bark/overview' },
@@ -161,6 +165,10 @@ export default defineConfig({
             {
               text: 'Extend Data Models',
               items: [{ text: 'Extend Data Models', link: '/en/guide/custom-model' }],
+            },
+            {
+              text: 'Config Wizard',
+              items: [{ text: 'Config Wizard', link: '/en/guide/config-wizard' }],
             },
             {
               text: 'Developer API',

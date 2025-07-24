@@ -11,6 +11,7 @@ import f2
 from f2 import helps
 from f2.apps import __apps__ as apps_module
 from f2.cli.cli_console import RichConsoleManager
+from f2.cli.wizard_command import config_wizard_command
 from f2.i18n.translator import TranslationManager, _
 from f2.log.logger import logger, trace_logger
 from f2.utils.core.signal import SignalManager
@@ -144,7 +145,27 @@ class DynamicGroup(click.Group):
     ```
     """
 
+    def __init__(self, *args, **kwargs):
+        super().__init__(*args, **kwargs)
+        # 添加内置命令
+        self.add_command(config_wizard_command)
+
+    def list_commands(self, ctx):
+        """列出所有可用命令"""
+        # 获取内置命令
+        builtin_commands = list(self.commands.keys())
+
+        # 获取应用命令
+        app_commands = list(APP_MAPPINGS.keys()) + list(REVERSE_APP_MAPPINGS.keys())
+
+        return sorted(builtin_commands + app_commands)
+
     def get_command(self, ctx: click.Context, cmd_name: str):
+        # 首先检查是否是内置命令
+        if cmd_name in self.commands:
+            return self.commands[cmd_name]
+
+        # 然后检查应用命令
         app_name = (
             cmd_name
             if cmd_name in APP_MAPPINGS
