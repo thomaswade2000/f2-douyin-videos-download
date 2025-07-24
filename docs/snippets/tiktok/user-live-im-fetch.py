@@ -63,16 +63,11 @@ async def main():
     # 通过该接口获取wss所需的cursor和internal_ext
     live_im = await TiktokHandler(kwargs).fetch_live_im(room_id=room_id)
     # logger.info(
-    #     "直播间IM页码：",
-    #     live_im.cursor,
-    #     "直播间IM扩展：",
-    #     live_im.internalExt,
-    #     "直播间IM wrss：",
-    #     live_im.routeParams.wrss,
+    #     f"直播间IM页码：{live_im.cursor} 直播间IM扩展：{live_im.internalExt} 直播间IM wrss：{live_im.routeParams.wrss}"
     # )
 
     if live_im:
-        # 获取直播间信息
+        # 获取直播弹幕
         await TiktokHandler(kwargs2).fetch_live_danmaku(
             room_id=room_id,
             internal_ext=live_im.internalExt,
