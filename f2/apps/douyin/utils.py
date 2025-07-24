@@ -819,6 +819,7 @@ class AwemeIdFetcher(BaseCrawler):
     类属性:
     - _DOUYIN_VIDEO_URL_PATTERN (re.Pattern): 抖音视频 URL 的正则表达式模式。
     - _DOUYIN_NOTE_URL_PATTERN (re.Pattern): 抖音笔记 URL 的正则表达式模式。
+    - _DOUYIN_INVAILID_URL_PATTERN (re.Pattern): 抖音视频 URL 的第三种正则表达式模式。
     - proxies (dict): 代理配置。
 
     方法:
