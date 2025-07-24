@@ -758,10 +758,10 @@ class DouyinWebSocketCrawler(WebSocketCrawler):
 
         cls._log(
             _(
-                "[WebcastMemberMessage] [🚺观众加入消息] | [用户ID：{0}] [用户名：{1}]"
+                "[WebcastMemberMessage] [🚺观众加入消息] | [UniqueID：{0}] [用户名：{1}]"
             ).format(
-                data_json.get("user", {}).get("id"),
-                data_json.get("user", {}).get("nickname"),
+                data_json.get("user", {}).get("display_id"),
+                data_json.get("user", {}).get("desensitized_nickname"),
             )
         )
         return data_json
