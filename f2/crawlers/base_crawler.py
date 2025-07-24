@@ -94,7 +94,7 @@ class BaseCrawler:
         self.semaphore = asyncio.Semaphore(self._max_tasks)
 
         # 限制最大连接数 / Limit the maximum number of connections
-        self._max_connections = kwargs.get("max_connections", 10)
+        self._max_connections = kwargs.get("max_connections", 50)
         self.limits = httpx.Limits(max_connections=self._max_connections)
 
         # 业务逻辑重试次数 / Business logic retry count
@@ -102,7 +102,12 @@ class BaseCrawler:
 
         # 超时等待时间 / Timeout waiting time
         self._timeout = kwargs.get("timeout", 10)
-        self.timeout = httpx.Timeout(self._timeout)
+        self.timeout = httpx.Timeout(
+            connect=self._timeout,
+            read=self._timeout * 2,  # 读取超时通常设置为连接超时的2倍
+            write=self._timeout,
+            pool=self._timeout * 3,  # 连接池超时设置更长
+        )
 
         # 异步客户端 / Asynchronous client
         self._aclient: Optional[httpx.AsyncClient] = None
@@ -448,7 +453,12 @@ class BaseCrawler:
 
                     if attempt == self._max_retries - 1:
                         raise APIRetryExhaustedError(
-                            _("获取端点数据失败, 次数达到上限")
+                            _(
+                                "获取端点数据失败，重试次数达到上限。代理：{0}，异常类名：{1}"
+                            ).format(
+                                self.proxies,
+                                self.__class__.__name__,
+                            )
                         )
 
                     await asyncio.sleep(self._timeout)
