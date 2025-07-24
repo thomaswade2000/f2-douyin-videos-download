@@ -1,5 +1,6 @@
 # path: f2/utils/http/utils.py
 
+import asyncio
 import traceback
 from pathlib import Path
 from typing import List, Optional, Union
@@ -15,18 +16,22 @@ from f2.utils.file.path import ensure_path
 
 
 async def get_content_length(
-    url: str, headers: Optional[dict] = None, proxies: Optional[dict] = None
+    url: str,
+    headers: Optional[dict] = None,
+    proxies: Optional[dict] = None,
+    max_retries: int = 3,
 ) -> int:
     """
-    获取给定URL的Content-Length (Retrieve the Content-Length for a given URL)
+    获取给定URL的Content-Length，使用HEAD请求重试，失败后退避到GET请求
 
     Args:
-        url (str): 目标URL (Target URL)
-        headers (dict): 请求头 (Request headers)
-        proxies (dict): 代理 (Proxies)
+        url (str): 目标URL
+        headers (Optional[dict], optional): 自定义请求头
+        proxies (Optional[dict], optional): 代理配置
+        max_retries (int, optional): 最大重试次数，默认为3
 
     Returns:
-        int: Content-Length的值，如果获取失败则返回0 (Value of Content-Length, or 0 if retrieval fails)
+        int: 文件的Content-Length，单位为字节
     """
 
     if proxies is None:
@@ -36,82 +41,151 @@ async def get_content_length(
         proxies.get("http://") or proxies.get("https://") or proxies.get("all://")
     )
 
-    async with httpx.AsyncClient(
-        timeout=10.0,
-        transport=httpx.AsyncHTTPTransport(retries=5, proxy=proxy_url),
-        verify=False,
-    ) as aclient:
-        try:
-            response = await aclient.head(url, headers=headers, follow_redirects=True)
-            # 当head请求被禁止时，释放status异常被捕获 (When head requests are forbidden, release status exceptions are caught)
-            response.raise_for_status()
+    timeout_config = httpx.Timeout(
+        connect=10.0,  # 连接超时
+        read=30.0,  # 读取超时
+        write=10.0,  # 写入超时
+        pool=10.0,  # 连接池超时
+    )
 
-            if (
-                response.headers.get("Content-Length") != None
-                and int(response.headers.get("Content-Length")) == 0
-            ):
-                # 如果head请求无法获取Content-Length, 则使用GET请求再次尝试获取
-                response = await aclient.get(
-                    url, headers=headers, follow_redirects=True
-                )
+    # 优化请求头
+    optimized_headers = {
+        "Accept": "*/*",
+        "Accept-Encoding": "gzip, deflate",
+        "Connection": "keep-alive",
+        "Cache-Control": "no-cache",
+    }
+
+    if headers:
+        optimized_headers.update(headers)
+
+    async with httpx.AsyncClient(
+        timeout=timeout_config,
+        transport=httpx.AsyncHTTPTransport(
+            retries=2,
+            proxy=proxy_url,
+        ),
+        verify=False,
+        follow_redirects=True,
+        limits=httpx.Limits(max_connections=10, max_keepalive_connections=5),
+    ) as aclient:
+
+        # 策略1：HEAD请求重试
+        for attempt in range(max_retries):
+            try:
+                response = await aclient.head(url, headers=optimized_headers)
                 response.raise_for_status()
 
-        except httpx.ConnectTimeout:
-            # 连接超时错误处理 (Handling connection timeout errors)
-            trace_logger.error(traceback.format_exc())
-            logger.error(_("连接超时错误：{0}".format(url)))
-            logger.debug("===================================")
-            logger.debug(f"headers：{headers}，proxies：{proxies}")
-            logger.debug("===================================")
-            return 0
-        # 对HTTP状态错误进行处理 (Handling HTTP status errors)
-        except httpx.HTTPStatusError as exc:
-            # HEAD或请求不被允许 (HEAD or request not allowed)
-            if exc.response.status_code in [405, 403, 401, 302]:
-                try:
-                    # 使用GET请求尝试再次获取Content-Length
-                    # (Trying to retrieve Content-Length using GET request)
-                    request = aclient.build_request("GET", url, headers=headers)
-                    # 使用stream=True来避免下载整个内容
-                    # (Using stream=True to avoid downloading the entire content)
-                    response = await aclient.send(request, stream=True)
-                    response.raise_for_status()
-                except Exception as e:
-                    trace_logger.error(traceback.format_exc())
-                    logger.error(
-                        _("HTTP状态错误，尝试GET请求失败，错误详情：{0}".format(e))
+                content_length = response.headers.get("Content-Length")
+                if content_length and int(content_length) > 0:
+                    logger.debug(
+                        _("HEAD请求成功获取Content-Length: {0}").format(content_length)
                     )
-                    return 0
-            else:
-                logger.error(
-                    _(
-                        "HTTP状态错误：{0}，状态码：{1}".format(
-                            url, exc.response.status_code
+                    return int(content_length)
+
+                # HEAD请求成功但没有Content-Length，直接退避到GET请求
+                logger.debug(_("HEAD请求成功但无Content-Length头，退避到GET请求"))
+                break
+
+            except (
+                httpx.TimeoutException,
+                httpx.ConnectTimeout,
+                httpx.ReadTimeout,
+            ) as e:
+                if attempt < max_retries - 1:
+                    wait_time = (attempt + 1) * 2  # 递增等待时间
+                    logger.warning(
+                        _("HEAD请求超时，{0} 秒后重试 ({1}/{2})：{3}").format(
+                            wait_time, attempt + 1, max_retries, url
                         )
+                    )
+                    await asyncio.sleep(wait_time)
+                    continue
+                else:
+                    logger.warning(
+                        _(
+                            "HEAD请求超时（已达最大重试次数），退避到GET请求：{0}"
+                        ).format(url)
+                    )
+                    break
+
+            except httpx.HTTPStatusError as e:
+                if e.response.status_code in (404, 405, 403):  # 常见的HEAD不支持状态码
+                    logger.debug(
+                        _("HEAD请求HTTP错误：{0}，状态码：{1}，退避到GET请求").format(
+                            url, e.response.status_code
+                        )
+                    )
+                    break
+                elif attempt < max_retries - 1:
+                    wait_time = (attempt + 1) * 2
+                    logger.warning(
+                        _(
+                            "HEAD请求HTTP错误：{0}，状态码：{1}，{2} 秒后重试 ({3}/{4})"
+                        ).format(
+                            url,
+                            e.response.status_code,
+                            wait_time,
+                            attempt + 1,
+                            max_retries,
+                        )
+                    )
+                    await asyncio.sleep(wait_time)
+                    continue
+                else:
+                    logger.warning(
+                        _(
+                            "HEAD请求HTTP错误（已达最大重试次数）：{0}，状态码：{1}，退避到GET请求"
+                        ).format(url, e.response.status_code)
+                    )
+                    break
+
+            except Exception as e:
+                if attempt < max_retries - 1:
+                    wait_time = (attempt + 1) * 2
+                    logger.warning(
+                        _("HEAD请求发生错误，{0}秒后重试 ({1}/{2})：{3}").format(
+                            wait_time, attempt + 1, max_retries, str(e)
+                        )
+                    )
+                    await asyncio.sleep(wait_time)
+                    continue
+                else:
+                    logger.warning(
+                        _(
+                            "HEAD请求发生错误（已达最大重试次数），退避到GET请求：{0}"
+                        ).format(str(e))
+                    )
+                    break
+
+        # 策略2：退避到GET请求获取Content-Length
+        logger.debug(_("尝试使用GET请求获取Content-Length"))
+        try:
+            async with aclient.stream(
+                "GET", url, headers=optimized_headers
+            ) as response:
+                response.raise_for_status()
+
+                content_length = response.headers.get("Content-Length")
+                if content_length and int(content_length) > 0:
+                    logger.debug(
+                        _("GET请求成功获取Content-Length: {0}").format(content_length)
+                    )
+                    return int(content_length)
+
+                # 如果GET请求也没有Content-Length，说明可能是动态内容或chunked传输
+                # 这种情况下返回0，让下载器使用流式下载
+                logger.debug(
+                    _("GET请求成功但无Content-Length头，将使用流式下载：{0}").format(
+                        url
                     )
                 )
                 return 0
-        except httpx.ReadTimeout:
-            # 读取超时错误处理 (Handling read timeout errors)
-            trace_logger.error(traceback.format_exc())
-            logger.error(_("返回超时错误：{0}".format(url)))
-            return 0
+
         except Exception as e:
-            # 处理未知错误 (Handling unknown errors)
+            logger.error(_("GET请求也失败：{0}，错误：{1}").format(url, str(e)))
             trace_logger.error(traceback.format_exc())
-            logger.error(
-                _(
-                    "f2 请求 Content-Length 时发生未知错误：{0}，错误详情：{1}".format(
-                        url, e
-                    )
-                )
-            )
             return 0
-
-        # 返回Content-Length值 (Returning the Content-Length value)
-        return int(response.headers.get("Content-Length", 0))
-
-        # raise ValueError("响应中没有找到Content-Length") # Content-Length header not found in the response
 
 
 def trim_filename(filename: Union[str, Path], max_length: int = 50) -> str:
