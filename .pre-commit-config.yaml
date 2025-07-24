@@ -27,7 +27,7 @@ repos:
     hooks:
     -   id: mypy
         additional_dependencies: [types-protobuf, types-aiofiles]
-        args: [--ignore-missing-imports, --check-untyped-defs]
+        args: [--ignore-missing-imports, --config-file=pyproject.toml]
         exclude: ^(f2/apps/(douyin|tiktok)/proto/.*_pb2\.py|docs/snippets/.*\.py|f2-secrets/.*\.py|tests/.*\.py)$
 
 # Python security checks

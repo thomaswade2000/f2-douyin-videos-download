@@ -127,7 +127,9 @@ asyncio_default_fixture_loop_scope = "function"
 
 [tool.mypy]
 ignore_missing_imports = true
+check_untyped_defs = true
 exclude = [
+    "f2/apps/(douyin|tiktok)/proto/.*_pb2\\.py",
     "docs/snippets/",
     "f2-secrets/",
     "tests/"
