@@ -7,7 +7,7 @@ test_urls = [
     "https://www.tiktok.com/@justinbieber",
     "https://www.tiktok.com/@justinbieber?is_from_webapp=1&sender_device=pc",
     "https://www.tiktok.com/@justinbieber?_t=8sUF3uPZ60n&_r=1",
-    "https://www.tiktok.com/@justinbieber/video/7140296406429977898",
+    "https://www.tiktok.com/@justinbieber/video/7529203761659579661",
 ]
 
 # 预期的 sec_user_id 结果

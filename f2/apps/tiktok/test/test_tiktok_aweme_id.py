@@ -4,22 +4,22 @@ from f2.apps.tiktok.utils import AwemeIdFetcher
 from f2.utils.string.formatter import extract_valid_urls
 
 test_urls = [
-    "https://www.tiktok.com/@justinbieber/video/7140296406429977898",
-    "https://www.tiktok.com/@justinbieber/video/7140296406429977898/",
-    "https://www.tiktok.com/@justinbieber/video/7140296406429977898?is_from_webapp=1&sender_device=pc&web_id=7451992228786750983",
-    "https://www.tiktok.com/@justinbieber/video/7140296406429977898/?is_from_webapp=1&sender_device=pc&web_id=7451992228786750983",
+    "https://www.tiktok.com/@justinbieber/video/7529203761659579661",
+    "https://www.tiktok.com/@justinbieber/video/7529203761659579661/",
+    "https://www.tiktok.com/@justinbieber/video/7529203761659579661?is_from_webapp=1&sender_device=pc&web_id=7451992228786750983",
+    "https://www.tiktok.com/@justinbieber/video/7529203761659579661/?is_from_webapp=1&sender_device=pc&web_id=7451992228786750983",
     "https://vt.tiktok.com/ZS66e9D4C/",
     "https://vt.tiktok.com/ZS66e9D4C",
 ]
 
 # 预期的 aweme_id 结果
 expected_results = [
-    "7140296406429977898",
-    "7140296406429977898",
-    "7140296406429977898",
-    "7140296406429977898",
-    "7140296406429977898",
-    "7140296406429977898",
+    "7529203761659579661",
+    "7529203761659579661",
+    "7529203761659579661",
+    "7529203761659579661",
+    "7529203761659579661",
+    "7529203761659579661",
 ]
 
 
