@@ -1,6 +1,7 @@
 # path: f2/dl/base_downloader.py
 
 import asyncio
+import hashlib
 import sys
 import traceback
 from pathlib import Path
@@ -13,7 +14,6 @@ from rich.progress import TaskID
 from f2.cli.cli_console import RichConsoleManager
 from f2.crawlers.base_crawler import BaseCrawler
 from f2.dl.m3u8 import M3U8DownloadMixin
-from f2.exceptions.api_exceptions import APIRetryExhaustedError
 from f2.i18n.translator import _
 from f2.log.logger import logger, trace_logger
 from f2.utils.core.signal import SignalManager
@@ -98,7 +98,7 @@ class BaseDownloader(M3U8DownloadMixin, BaseCrawler):
         Args:
             request (httpx.Request): HTTP请求对象 (HTTP request object)
             file: 文件对象 (File object)
-            content_length (int): 内容长度 (Content length)
+            content_length: (int): 内容长度 (Content length)
             task_id (TaskID): 任务ID (Task ID)
         """
 
@@ -138,6 +138,267 @@ class BaseDownloader(M3U8DownloadMixin, BaseCrawler):
             trace_logger.error(traceback.format_exc())
             logger.error(_("文件区块下载失败：{0} Exception：{1}").format(request, e))
 
+    async def _download_chunks_optimized(
+        self,
+        request: httpx.Request,
+        file: Any,
+        content_length: int,
+        task_id: TaskID,
+        start_byte: int = 0,
+    ) -> bool:
+        """
+        优化的分块下载方法，支持更好的异步性能和错误处理
+
+        Args:
+            request (httpx.Request): HTTP请求对象
+            file: 文件对象
+            content_length (int): 内容长度
+            task_id (TaskID): 任务ID
+            start_byte (int): 开始下载的字节位置，默认为0
+
+        Returns:
+            bool: 下载是否成功
+        """
+        retry_count = 0
+        max_retries = 3
+
+        while retry_count < max_retries:
+            downloaded_bytes = 0  # 每次重试时重置下载字节数
+
+            try:
+                # 使用更优化的超时配置
+                timeout = httpx.Timeout(connect=15.0, read=60.0, write=30.0, pool=30.0)
+
+                # 更新请求头中的Range，以支持断点续传
+                current_headers = dict(request.headers)
+                if start_byte + downloaded_bytes > 0:
+                    current_headers["Range"] = f"bytes={start_byte + downloaded_bytes}-"
+
+                # 使用更简单的方式发送请求，让httpx处理重定向
+                async with self.aclient.stream(
+                    request.method,
+                    str(request.url),
+                    headers=current_headers,
+                    timeout=timeout,
+                    follow_redirects=True,  # 让httpx自动处理重定向
+                ) as response:
+
+                    # 检查状态码
+                    if response.status_code not in (200, 206):
+                        logger.warning(
+                            _("下载响应状态码异常: {0}，重试 {1}/{2}").format(
+                                response.status_code, retry_count + 1, max_retries
+                            )
+                        )
+                        retry_count += 1
+                        await asyncio.sleep(2**retry_count)  # 指数退避
+                        continue
+
+                    # 使用缓冲区批量写入，提高异步性能
+                    buffer = bytearray()
+                    # 动态缓冲区大小：根据文件大小调整缓冲区
+                    # 小文件(< 10MB): 256KB, 中文件(10MB-100MB): 1MB, 大文件(> 100MB): 4MB
+                    if content_length < 10 * 1024 * 1024:  # < 10MB
+                        buffer_size = 256 * 1024  # 256KB
+                    elif content_length < 100 * 1024 * 1024:  # < 100MB
+                        buffer_size = 1024 * 1024  # 1MB
+                    else:  # >= 100MB
+                        buffer_size = 4 * 1024 * 1024  # 4MB
+
+                    chunk_size = get_chunk_size(content_length)
+                    # 确保chunk_size不超过buffer_size的1/4，避免频繁刷新
+                    chunk_size = min(chunk_size, buffer_size // 4)
+
+                    # 调试信息：记录缓冲区配置
+                    logger.debug(
+                        _(
+                            "文件大小: {0:.2f}MB, 缓冲区大小: {1}KB, 块大小: {2}KB"
+                        ).format(
+                            content_length / (1024 * 1024),
+                            buffer_size // 1024,
+                            chunk_size // 1024,
+                        )
+                    )
+
+                    async for chunk in response.aiter_bytes(chunk_size):
+                        if SignalManager.is_shutdown_signaled():
+                            # 信号中断时，重置进度状态
+                            await self.progress.update(
+                                task_id,
+                                description=_("[yellow][  中断  ]：[/yellow]"),
+                                state="error",
+                            )
+                            return False
+
+                        buffer.extend(chunk)
+                        downloaded_bytes += len(chunk)
+
+                        # 智能缓冲区写入策略
+                        # 1. 当缓冲区满时写入
+                        # 2. 定期写入避免内存占用过高
+                        # 3. 批量更新进度条减少UI刷新频率
+                        if len(buffer) >= buffer_size:
+                            await file.write(buffer)
+                            # 对于大文件，减少flush频率以提高性能
+                            if content_length > 50 * 1024 * 1024:  # > 50MB时减少flush
+                                if (
+                                    downloaded_bytes % (buffer_size * 4) == 0
+                                ):  # 每16MB flush一次
+                                    await file.flush()
+                            else:
+                                await file.flush()  # 小文件每次都flush确保数据安全
+
+                            # 异步更新进度 - 使用 completed 而非 advance 来确保进度准确
+                            current_completed = start_byte + downloaded_bytes
+                            await self.progress.update(
+                                task_id,
+                                completed=current_completed,
+                                total=content_length,
+                            )
+                            buffer.clear()
+
+                    # 写入剩余缓冲区数据
+                    if buffer:
+                        await file.write(buffer)
+                        await file.flush()  # 最后确保所有数据都写入磁盘
+                        current_completed = start_byte + downloaded_bytes
+                        await self.progress.update(
+                            task_id,
+                            completed=current_completed,
+                            total=content_length,
+                        )
+
+                    return True
+
+            except (httpx.TimeoutException, httpx.PoolTimeout) as e:
+                retry_count += 1
+                wait_time = min(2**retry_count, 30)  # 最大等待30秒
+                logger.warning(
+                    _("下载超时，{0} 秒后重试 ({1}/{2}): {3}").format(
+                        wait_time, retry_count, max_retries, str(e)
+                    )
+                )
+                # 重置进度到开始位置
+                await self.progress.update(
+                    task_id,
+                    completed=start_byte,
+                    total=content_length,
+                )
+                if retry_count < max_retries:
+                    await asyncio.sleep(wait_time)
+                    continue
+                else:
+                    trace_logger.error(_("下载超时重试次数已达上限"))
+                    await self.progress.update(
+                        task_id, description=_("[red][  超时  ]：[/red]"), state="error"
+                    )
+                    return False
+
+            except httpx.HTTPStatusError as e:
+                # 对于HTTP错误，不重试，直接失败
+                trace_logger.error(traceback.format_exc())
+                await self.progress.update(
+                    task_id, description=_("[red][  错误  ]：[/red]"), state="error"
+                )
+                return False
+
+            except Exception as e:
+                retry_count += 1
+                logger.warning(
+                    _("下载异常，重试 ({0}/{1): {2}").format(
+                        retry_count, max_retries, str(e)
+                    )
+                )
+                # 重置进度到开始位置
+                await self.progress.update(
+                    task_id,
+                    completed=start_byte,
+                    total=content_length,
+                )
+                if retry_count < max_retries:
+                    await asyncio.sleep(2**retry_count)
+                    continue
+                else:
+                    trace_logger.error(traceback.format_exc())
+                    await self.progress.update(
+                        task_id, description=_("[red][  失败  ]：[/red]"), state="error"
+                    )
+                    return False
+
+        return False
+
+    async def _validate_file_integrity(
+        self, file_path: Path, expected_size: int, url: str
+    ) -> bool:
+        """
+        验证文件完整性
+
+        Args:
+            file_path: 文件路径
+            expected_size: 期望的文件大小
+            url: 原始URL，用于获取ETag等信息
+
+        Returns:
+            bool: 文件是否完整
+        """
+        if not file_path.exists():
+            return False
+
+        actual_size = file_path.stat().st_size
+        if actual_size != expected_size:
+            logger.debug(
+                _("文件大小不匹配 - 期望: {0}, 实际: {1}").format(
+                    expected_size, actual_size
+                )
+            )
+            return False
+
+        # 添加ETag验证
+        try:
+            # 获取服务器的ETag用于验证
+            response = await self.aclient.head(url, headers=self.headers)
+            etag = response.headers.get("ETag")
+            # 💩中💩 微博返回的ETag格式为 "1-b863f929ea62855a2eaa9fc4f8502be6"，需要处理
+            if etag and '"1-' in etag:
+                # 去除引号
+                etag = etag.strip('"')
+                # 去除前缀1-
+                etag = etag.split("-")[1] if "-" in etag else etag
+                # 添加引号
+                etag = f'"{etag}"' if not etag.startswith('"') else etag
+
+            if etag:
+                # 计算本地文件的哈希值与ETag比较 ETag	"203394d4707fb4f999ce023359ec00ea"
+                hash_md5 = hashlib.md5()
+                async with aiofiles.open(file_path, "rb") as f:
+                    while True:
+                        chunk = await f.read(8192)
+                        if not chunk:
+                            break
+                        hash_md5.update(chunk)
+                local_etag = f'"{hash_md5.hexdigest()}"'
+                # 比较ETag
+                if local_etag != etag:
+                    logger.debug(
+                        _("文件ETag不匹配 - 期望: {0}, 实际: {1}").format(
+                            etag, local_etag
+                        )
+                    )
+                    return False
+                logger.debug(
+                    _("文件ETag匹配 - 期望: {0}, 实际: {1}").format(etag, local_etag)
+                )
+                return True
+            else:
+                logger.debug(_("未找到ETag头，无法进行ETag验证"))
+        except Exception:
+            # ETag验证失败不影响主流程
+            logger.debug(_("获取ETag失败，可能是服务器不支持HEAD请求或ETag头缺失"))
+            trace_logger.error(traceback.format_exc())
+            return False
+
+        return True
+
     async def download_file(
         self,
         task_id: TaskID,
@@ -161,139 +422,199 @@ class BaseDownloader(M3U8DownloadMixin, BaseCrawler):
             # 如果urls是单个链接，则转换为列表以便统一处理
             urls = [urls] if isinstance(urls, str) else urls
 
-            # 确保目标路径存在 (Ensure target path exists)
+            # 确保目标路径存在
             full_path = self._ensure_path(full_path)
             full_path.parent.mkdir(parents=True, exist_ok=True)
             tmp_path = full_path.with_suffix(".tmp")
 
-            # 遍历所有链接 (Iterate over all links)
-            for link in urls:
+            # 遍历所有链接
+            for link_index, link in enumerate(urls):
                 try:
-                    # 获取文件内容大小 (Get the size of the file content)
+                    # 获取文件内容大小
                     content_length = await get_content_length(
                         link, self.headers, self.proxies
                     )
-                    logger.debug(
-                        _("{0} 在服务器上的总内容长度为：{1} 字节").format(
-                            link, content_length
-                        )
-                    )
 
-                    # 如果文件内容大小为0, 则尝试下一个链接 (If the file content size is 0, try the next link)
                     if content_length == 0:
                         logger.warning(
                             _("链接 {0} 响应大小为 0 字节，尝试下一个链接").format(link)
                         )
+                        # 更新进度状态为错误
+                        await self.progress.update(
+                            task_id,
+                            description=_("[yellow][  空文件  ]：[/yellow]"),
+                        )
                         continue
 
-                    start_byte = 0 if not tmp_path.exists() else tmp_path.stat().st_size
-                    logger.debug(
-                        _("找到了未下载完的文件 {0}, 大小为 {1} 字节").format(
-                            tmp_path, start_byte
+                    # 检查现有文件
+                    if full_path.exists():
+                        if await self._validate_file_integrity(
+                            full_path, content_length, link
+                        ):
+                            logger.info(
+                                _("文件已存在且完整，跳过下载: {0}").format(
+                                    full_path.name
+                                )
+                            )
+                            await self.progress.update(
+                                task_id,
+                                description=_("[green][  完成  ]：[/green]"),
+                                filename=trim_filename(full_path.name, 45),
+                                state="completed",
+                                visible=False,
+                            )
+                            return
+                        else:
+                            # 文件不完整，删除重新下载
+                            full_path.unlink(missing_ok=True)
+
+                    # 检查临时文件
+                    start_byte = 0
+                    if tmp_path.exists():
+                        start_byte = tmp_path.stat().st_size
+                        # 检查临时文件是否已经完整
+                        if start_byte >= content_length:
+                            if start_byte == content_length:
+                                # 临时文件已完整，直接重命名
+                                tmp_path.rename(full_path)
+                                # 从临时文件恢复完整文件"))
+                                logger.info(
+                                    _(
+                                        "[green][  恢复  ]：从临时文件恢复完整文件[/green]"
+                                    )
+                                )
+                                await self.progress.update(
+                                    task_id,
+                                    description=_("[green][  完成  ]：[/green]"),
+                                    filename=trim_filename(full_path.name, 45),
+                                    state="completed",
+                                    visible=False,
+                                )
+                                return
+                            else:
+                                # 临时文件异常，删除重新下载
+                                tmp_path.unlink(missing_ok=True)
+                                start_byte = 0
+
+                    # 构建下载请求
+                    range_headers = self.headers.copy()
+                    if start_byte > 0:
+                        range_headers["Range"] = f"bytes={start_byte}-"
+                        logger.info(
+                            _("继续下载，从 {0} 字节开始 (已下载 {1:.1f}%)").format(
+                                start_byte, (start_byte / content_length) * 100
+                            )
                         )
-                    )
+                        # 重要：设置进度条的初始进度状态，确保不会被后续的advance覆盖
+                        await self.progress.update(
+                            task_id,
+                            completed=start_byte,
+                            total=content_length,
+                        )
+                    else:
+                        # 新下载，初始化进度条
+                        await self.progress.update(
+                            task_id,
+                            completed=0,
+                            total=content_length,
+                        )
 
-                    if start_byte == content_length:
-                        tmp_path.rename(full_path)
-                        logger.info(_("文件已完整下载，无需重复下载"))
-                        return
-
-                    # 构建range请求头 (Build range request header)
-                    range_headers = (
-                        {"Range": f"bytes={start_byte}-"} if start_byte else {}
-                    )
-                    range_headers.update(self.headers)
-
-                    range_request = self.aclient.build_request(
+                    request = self.aclient.build_request(
                         "GET", link, headers=range_headers
                     )
 
-                    retry_attempts = 3  # 最大重试次数
-                    for attempt in range(retry_attempts):
-                        try:
-                            async with aiofiles.open(
-                                tmp_path, "ab" if start_byte else "wb"
-                            ) as file:
-                                await self._download_chunks(
-                                    range_request, file, content_length, task_id
-                                )
-                            break  # 成功下载，跳出重试循环
-
-                        except httpx.RemoteProtocolError as e:
-                            logger.warning(
-                                _("协议错误，重试 {0}/{1}：{2}").format(
-                                    attempt + 1, retry_attempts, e
-                                )
-                            )
-                            if attempt == retry_attempts - 1:
-                                # 重试次数用尽，抛出异常 (Retry attempts exhausted, raise exception)
-                                raise APIRetryExhaustedError(_("重试次数已用尽"))
-
-                    # 检查文件大小是否匹配 (Check if the file size matches)
-                    actual_size = tmp_path.stat().st_size
-                    if actual_size != content_length:
-                        logger.warning(
-                            _("文件大小不匹配 - 预期: {0} 字节, 实际: {1} 字节").format(
-                                content_length, actual_size
-                            )
-                        )
-                        await self.progress.update(
-                            task_id,
-                            description=_("[yellow][  警告  ]：[/yellow]"),
-                            filename=trim_filename(full_path.name, 45),
-                            state="warning",
-                        )
-                        continue  # 保留.tmp后缀，尝试下一个链接
-
-                    # 尝试重命名文件
+                    # 执行下载
                     try:
-                        tmp_path.rename(full_path)
-                    except (FileExistsError, PermissionError) as e:
-                        logger.error(_("文件重命名失败：{0}").format(e))
-                        tmp_path.replace(full_path)
+                        async with aiofiles.open(
+                            tmp_path, "ab" if start_byte else "wb"
+                        ) as file:
+                            success = await self._download_chunks_optimized(
+                                request, file, content_length, task_id, start_byte
+                            )
+
+                        if not success:
+                            logger.error(_("下载失败，尝试下一个链接"))
+                            # 清理失败的临时文件
+                            tmp_path.unlink(missing_ok=True)
+                            # 重置进度条到开始状态
+                            await self.progress.update(
+                                task_id,
+                                completed=0,
+                                total=content_length,
+                                description=_("[yellow][  重试  ]：[/yellow]"),
+                            )
+                            continue
+
+                        # 验证下载完整性
+                        if await self._validate_file_integrity(
+                            tmp_path, content_length, link
+                        ):
+                            # 原子性重命名
+                            try:
+                                tmp_path.rename(full_path)
+                            except (FileExistsError, PermissionError):
+                                tmp_path.replace(full_path)
+
+                            logger.info(
+                                _("[green][  完成  ]：{0}[/green]").format(
+                                    full_path.name
+                                )
+                            )
+                            await self.progress.update(
+                                task_id,
+                                description=_("[green][  完成  ]：[/green]"),
+                                filename=trim_filename(full_path.name, 45),
+                                state="completed",
+                                visible=False,
+                            )
+                            return
+                        else:
+                            logger.warning(_("文件完整性验证失败，尝试下一个链接"))
+                            # 清理验证失败的文件
+                            tmp_path.unlink(missing_ok=True)
+                            # 重置进度条状态
+                            await self.progress.update(
+                                task_id,
+                                completed=0,
+                                total=content_length,
+                                description=_("[yellow][  重试  ]：[/yellow]"),
+                            )
+                            continue
+
                     except Exception as e:
-                        trace_logger.error(traceback.format_exc())
-                        logger.error(_("意外错误：{0}").format(e))
+                        logger.error(_("下载过程异常: {0}").format(str(e)))
+                        # 清理异常产生的临时文件
                         tmp_path.unlink(missing_ok=True)
+                        # 重置进度条状态
                         await self.progress.update(
                             task_id,
-                            description=_("[red][  失败  ]：[/red]"),
-                            filename=trim_filename(full_path.name, 45),
-                            state="error",
+                            completed=0,
+                            total=content_length,
+                            description=_("[red][  异常  ]：[/red]"),
                         )
                         continue
 
-                    logger.info(
-                        _("[green][  完成  ]：{0}[/green]").format(Path(full_path).name)
-                    )
+                except Exception as e:
+                    logger.error(_("处理链接失败: {0} - {1}").format(link, str(e)))
+                    # 重置进度条状态
                     await self.progress.update(
                         task_id,
-                        description=_("[green][  完成  ]：[/green]"),
-                        filename=trim_filename(full_path.name, 45),
-                        state="completed",
-                        visible=False,
+                        completed=0,
+                        description=_("[red][  错误  ]：[/red]"),
                     )
-                    break  # 下载成功，跳出链接循环
-
-                except Exception as e:
-                    logger.error(_("下载失败：{0}").format(e))
                     continue
 
-            else:
-                # 如果遍历完所有链接仍然无法成功下载，则记录警告
-                logger.warning(_("所有链接都无法下载"))
-                logger.error(
-                    _("[red][  丢失  ]：[/red]无法下载文件，路径：{0}").format(
-                        Path(full_path).name
-                    )
-                )
-                await self.progress.update(
-                    task_id,
-                    description=_("[red][  丢失  ]：[/red]"),
-                    filename=trim_filename(full_path.name, 45),
-                    state="error",
-                    visible=False,
-                )
+            # 所有链接都失败
+            logger.warning(_("所有链接都无法下载"))
+            # 清理可能残留的临时文件
+            tmp_path.unlink(missing_ok=True)
+            await self.progress.update(
+                task_id,
+                description=_("[red][  丢失  ]：[/red]"),
+                filename=trim_filename(full_path.name, 45),
+                state="error",
+                visible=False,
+            )
 
     async def save_file(
         self,
