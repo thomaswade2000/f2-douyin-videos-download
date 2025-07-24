@@ -1,7 +1,8 @@
 # path: f2/utils/json/escape.py
 
 import json
-import re
+
+from f2.log.logger import trace_logger
 
 
 def unescape_json(json_text: str) -> dict:
@@ -22,5 +23,5 @@ def unescape_json(json_text: str) -> dict:
         # 再解析成 JSON 对象
         return json.loads(json_str)
     except Exception as e:
-        print(f"unescape_json error: {e}, raw_json: {json_text}")
+        trace_logger.error(f"反转义 JSON 失败: {e}, 输入: {json_text}")
         return {}
