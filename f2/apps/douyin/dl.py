@@ -70,10 +70,13 @@ class DouyinDownloader(BaseDownloader):
 
         # 筛选指定日期区间内的作品
         if kwargs.get("interval") is None:
-            logger.warning(_("未提供日期区间参数"))
+            logger.debug(_("未提供日期区间参数，将处理所有作品"))
         elif kwargs.get("interval") != "all":
+            logger.debug(
+                _("开始按日期区间筛选作品：{0}").format(kwargs.get("interval"))
+            )
             filtered_data = await filter_by_date_interval(
-                aweme_datas_list, str(kwargs.get("interval")), "createTime"
+                aweme_datas_list, str(kwargs.get("interval")), "create_time"
             )
             # 处理返回结果确保类型一致
             if filtered_data is None:
@@ -85,7 +88,14 @@ class DouyinDownloader(BaseDownloader):
 
         # 检查是否有符合条件的作品
         if not aweme_datas_list:
-            logger.warning(_("没有找到符合条件的作品，请检查`interval`参数是否正确"))
+            if kwargs.get("interval") and kwargs.get("interval") != "all":
+                logger.warning(
+                    _("没有找到更多符合日期区间 '{0}' 的作品，请检查参数设置").format(
+                        kwargs.get("interval")
+                    )
+                )
+            else:
+                logger.warning(_("没有可处理的作品数据"))
             return
 
         # 使用 Rich 的 Live 管理器

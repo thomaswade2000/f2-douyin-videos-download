@@ -27,7 +27,13 @@ async def filter_by_date_interval(
     def is_within_interval(item: Dict) -> bool:
         date_str = item.get(field_name)
         if not date_str:
-            logger.warning(_("作品缺少创建时间：{0}").format(item))
+            # 改进调试信息，只显示关键字段避免日志过长
+            item_keys = list(item.keys())
+            logger.warning(
+                _("作品缺少创建时间字段 '{0}'，可用字段：{1}").format(
+                    field_name, item_keys[:10]
+                )
+            )  # 只显示前10个字段
             return False
         try:
             date = datetime.datetime.strptime(date_str, "%Y-%m-%d %H-%M-%S")
@@ -43,6 +49,24 @@ async def filter_by_date_interval(
     if not data or not interval:
         logger.error(_("作品或日期区间为空"))
         return None
+
+    # 检查是否传入的是API响应数据而不是作品数据
+    if isinstance(data, dict) and "status_code" in data:
+        logger.warning(
+            _("传入的数据似乎是API响应格式，而不是作品数据。请检查数据处理流程。")
+        )
+        # 尝试查找可能的作品数据字段
+        possible_data_fields = ["aweme_list", "data", "items", "results"]
+        for field in possible_data_fields:
+            if field in data and data[field]:
+                logger.info(_("找到可能的作品数据字段：{0}").format(field))
+                return await filter_by_date_interval(data[field], interval, field_name)
+        return None
+
+    # 如果interval为"all"，返回所有数据
+    if interval.lower() == "all":
+        logger.info(_("日期区间设置为'all'，返回所有作品"))
+        return data
 
     try:
         start_str, end_str = interval.split("|")
@@ -61,10 +85,11 @@ async def filter_by_date_interval(
 
     if isinstance(data, dict):
         if is_within_interval(data):
+            logger.debug(_("单个作品符合筛选条件：{0}").format(data.get("create_time")))
             return data
         else:
-            logger.warning(
-                _("作品创作时间不在筛选日期区间内：{0}").format(data.get("create_time"))
+            logger.debug(
+                _("单个作品不在筛选日期区间内：{0}").format(data.get("create_time"))
             )
             return None
 
@@ -72,10 +97,11 @@ async def filter_by_date_interval(
         filtered_list = [item for item in data if is_within_interval(item)]
         if filtered_list:
             logger.info(
-                _("在 {0} 条作品中有 {1} 条作品符合筛选日期条件：{2}").format(
+                _("在该页 {0} 条作品中有 {1} 条作品符合筛选日期条件：{2}").format(
                     len(data), len(filtered_list), interval
                 )
             )
         else:
-            logger.warning(_("没有找到符合条件的作品"))
+            # 移除这里的警告，让上层调用者决定是否输出警告
+            logger.debug(_("没有找到符合条件的作品"))
         return filtered_list

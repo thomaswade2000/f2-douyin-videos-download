@@ -151,7 +151,14 @@ class TiktokDownloader(BaseDownloader):
 
         # 检查是否有符合条件的作品
         if not aweme_datas_list:
-            logger.warning(_("没有找到符合条件的作品，请检查`interval`参数是否正确"))
+            if kwargs.get("interval") and kwargs.get("interval") != "all":
+                logger.warning(
+                    _("没有找到更多符合日期区间 '{0}' 的作品，请检查参数设置").format(
+                        kwargs.get("interval")
+                    )
+                )
+            else:
+                logger.warning(_("没有可处理的作品数据"))
             return
 
         # 使用 Rich 的 Live 管理器
