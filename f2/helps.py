@@ -1,20 +1,4 @@
-#!/usr/bin/env python
-# -*- encoding: utf-8 -*-
-"""
-@Description:helps.py
-@Date       :2023/02/06 17:36:41
-@Author     :JohnserfSeed
-@version    :0.0.1.7
-@License    :Apache License 2.0
-@Github     :https://github.com/johnserf-seed
-@Mail       :support@f2.wiki
--------------------------------------------------
-Change Log  :
-2023/02/06 17:36:41 - create output help
-2024/03/11 18:23:30 - change get_help @ importlib path
-2024/10/30 13:40:01 - make terminal more readable
--------------------------------------------------
-"""
+# path: f2/helps.py
 
 import importlib
 

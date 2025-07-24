@@ -13,7 +13,6 @@ from urllib.parse import urlparse
 import httpx
 
 import f2
-from f2.apps.douyin.algorithm.webcast_signature import DouyinWebcastSignature
 from f2.crawlers.base_crawler import BaseCrawler
 from f2.exceptions.api_exceptions import (
     APIConnectionError,

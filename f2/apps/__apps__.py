@@ -1,3 +1,5 @@
+# path: f2/apps/__apps__.py
+
 _douyin = ["douyin", "dy"]
 _tiktok = ["tiktok", "tk"]
 _weibo = ["weibo", "wb"]
