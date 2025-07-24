@@ -20,6 +20,11 @@ class BarkCrawler(BaseCrawler):
         kwargs = kwargs or {}
         proxies = kwargs.get("proxies", {"http://": None, "https://": None})
         api_key = kwargs.get("key", "")
+
+        # 验证 API key 是否存在
+        if not api_key or api_key.strip() == "":
+            raise ValueError(_("Bark API key 不能为空，请在配置中设置有效的 API key"))
+
         self.server_endpoint = f"{bkendpoint.BARK_DOMAIN}/{api_key}"
         super().__init__(
             kwargs=kwargs, proxies=proxies, crawler_headers=kwargs.get("headers", {})
