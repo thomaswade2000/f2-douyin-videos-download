@@ -305,7 +305,7 @@ class BaseDownloader(M3U8DownloadMixin, BaseCrawler):
             except Exception as e:
                 retry_count += 1
                 logger.warning(
-                    _("下载异常，重试 ({0}/{1): {2}").format(
+                    _("下载异常，重试 ({0}/{1}): {2}").format(
                         retry_count, max_retries, str(e)
                     )
                 )
