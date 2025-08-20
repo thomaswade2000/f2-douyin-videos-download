@@ -119,6 +119,20 @@ class DouyinHandler:
         self.enable_bark = BarkClientConfManager.enable_bark()
         self.bark_notification = BarkHandler(self.bark_kwargs)
 
+    def _check_ad_user_and_exit(self, user_path_or_user) -> bool:
+        """
+        检查是否为广告用户，如果是则记录日志并返回True表示应该退出
+
+        Args:
+            user_path_or_user: 用户路径或用户对象，如果为None表示是广告用户
+
+        Returns:
+            bool: True表示应该退出，False表示可以继续
+        """
+        if user_path_or_user is None:
+            return True
+        return False
+
     async def _send_bark_notification(
         self,
         title: str,
@@ -149,7 +163,7 @@ class DouyinHandler:
     async def fetch_user_profile(
         self,
         sec_user_id: str,
-    ) -> UserProfileFilter:
+    ) -> Optional[UserProfileFilter]:
         """
         用于获取指定用户的个人信息
         (Used to get personal info of specified users)
@@ -158,7 +172,7 @@ class DouyinHandler:
             sec_user_id: str: 用户ID (User ID)
 
         Return:
-            user: UserProfileFilter: 用户信息过滤器 (User info filter)
+            user: Optional[UserProfileFilter]: 用户信息过滤器，如果是广告用户则返回None (User info filter, returns None if ad user)
         """
 
         if not sec_user_id:
@@ -168,6 +182,11 @@ class DouyinHandler:
             params = UserProfile(sec_user_id=sec_user_id)
             response = await crawler.fetch_user_profile(params)
             user = UserProfileFilter(response)
+            # 如果user.status_code是5说明是广告用户，跳过下载
+            if user.status_code == 5:
+                logger.warning(_("检测到广告用户，跳过下载"))
+                return None
+
             if user.nickname is None:
                 raise APIResponseError(
                     _("`fetch_user_profile`请求失败，请更换cookie或稍后再试")
@@ -179,7 +198,7 @@ class DouyinHandler:
         kwargs: Dict,
         sec_user_id: str,
         db: AsyncUserDB,
-    ) -> Path:
+    ) -> Optional[Path]:
         """
         获取或创建用户数据同时创建用户目录
         (Get or create user data and create user directory)
@@ -190,7 +209,7 @@ class DouyinHandler:
             db (AsyncUserDB): 用户数据库 (User database)
 
         Returns:
-            user_path (Path): 用户目录路径 (User directory path)
+            user_path (Optional[Path]): 用户目录路径，如果是广告用户则返回None (User directory path, returns None if ad user)
         """
 
         # 尝试从数据库中获取用户数据
@@ -198,6 +217,10 @@ class DouyinHandler:
 
         # 从服务器获取当前用户最新数据
         current_user_data = await self.fetch_user_profile(sec_user_id)
+
+        # 如果是广告用户，返回None表示跳过
+        if current_user_data is None:
+            return None
 
         # 获取当前用户最新昵称
         current_nickname = current_user_data.nickname
@@ -262,6 +285,10 @@ class DouyinHandler:
             user_path = await self.get_or_add_user_data(
                 self.kwargs, aweme_data.sec_user_id, db
             )
+
+        # 如果是广告用户，优雅地退出
+        if self._check_ad_user_and_exit(user_path):
+            return
 
         async with AsyncVideoDB("douyin_videos.db") as db:
             await self.get_or_add_video_data(
@@ -361,6 +388,10 @@ class DouyinHandler:
         )
         async with AsyncUserDB("douyin_users.db") as udb:
             user_path = await self.get_or_add_user_data(self.kwargs, sec_user_id, udb)
+
+        # 如果是广告用户，优雅地退出
+        if self._check_ad_user_and_exit(user_path):
+            return
 
         async for aweme_data_list in self.fetch_user_post_videos(
             sec_user_id, min_cursor, max_cursor, page_counts, max_counts
@@ -491,6 +522,10 @@ class DouyinHandler:
         async with AsyncUserDB("douyin_users.db") as db:
             user_path = await self.get_or_add_user_data(self.kwargs, sec_user_id, db)
 
+        # 如果是广告用户，优雅地退出
+        if self._check_ad_user_and_exit(user_path):
+            return
+
         async for aweme_data_list in self.fetch_user_like_videos(
             sec_user_id, max_cursor, page_counts, max_counts
         ):
@@ -588,6 +623,13 @@ class DouyinHandler:
 
         # 点赞接口中没有当前用户的相关信息，因此无法获取nickname_raw
         user = await self.fetch_user_profile(sec_user_id)
+
+        # 如果是广告用户，直接返回不发送通知
+        if self._check_ad_user_and_exit(user):
+            return
+
+        # 此时确保 user 不为 None
+        assert user is not None
         await self._send_bark_notification(
             _("[DouYin] 点赞作品下载"),
             _("用户：{0}\n" "作品数：{1}\n" "下载时间：{2}").format(
@@ -621,6 +663,10 @@ class DouyinHandler:
 
         async with AsyncUserDB("douyin_users.db") as db:
             user_path = await self.get_or_add_user_data(self.kwargs, sec_user_id, db)
+
+        # 如果是广告用户，优雅地退出
+        if self._check_ad_user_and_exit(user_path):
+            return
 
         async for aweme_data_list in self.fetch_user_music_collection(
             max_cursor, page_counts, max_counts
@@ -731,6 +777,10 @@ class DouyinHandler:
 
         async with AsyncUserDB("douyin_users.db") as db:
             user_path = await self.get_or_add_user_data(self.kwargs, sec_user_id, db)
+
+        # 如果是广告用户，优雅地退出
+        if self._check_ad_user_and_exit(user_path):
+            return
 
         async for aweme_data_list in self.fetch_user_collection_videos(
             max_cursor, page_counts, max_counts
@@ -1553,12 +1603,18 @@ class DouyinHandler:
         aweme_data = await self.fetch_one_video(aweme_id)
 
         async with AsyncUserDB("douyin_users.db") as udb:
-            user_path = (
-                await self.get_or_add_user_data(
-                    self.kwargs, aweme_data.sec_user_id, udb
-                )
-                / aweme_id
+            user_path = await self.get_or_add_user_data(
+                self.kwargs, aweme_data.sec_user_id, udb
             )
+
+        # 如果是广告用户，优雅地退出
+        if self._check_ad_user_and_exit(user_path):
+            return
+
+        # 此时确保 user_path 不为 None
+        assert user_path is not None
+        # 添加作品ID到路径
+        user_path = user_path / aweme_id
 
         async for aweme_data_list in self.fetch_related_videos(
             aweme_id, "", page_counts, max_counts

@@ -43,6 +43,10 @@ class LiveChatSendFilter(JSONModel):
 
 class UserProfileFilter(JSONModel):
     @property
+    def status_code(self):
+        return self._get_attr_value("$.status_code")
+
+    @property
     def avatar_url(self):
         return self._get_attr_value("$.user.avatar_larger.url_list[0]")
 
