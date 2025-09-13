@@ -1354,7 +1354,7 @@ class DouyinHandler:
             live.nickname_raw or "未知",
             live.live_title_raw,
             DY_LIVE_STATUS_MAPPING.get(live.live_status, _("未知状态")),
-            live.user_count,
+            live.user_count or 0,
         )
 
         logger.info(bark_body)
@@ -2393,7 +2393,7 @@ class DouyinHandler:
                 _("直播间Room_ID：{0} 直播间标题：{1} 直播间人数：{2}").format(
                     follow_live.room_id,
                     follow_live.live_title_raw,
-                    follow_live.user_count,
+                    follow_live.user_count or 0,
                 )
             )
             logger.info(_("结束查询关注用户直播间信息"))
