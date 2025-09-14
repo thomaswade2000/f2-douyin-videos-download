@@ -51,8 +51,8 @@ async def get_content_length(
     # 优化请求头
     optimized_headers = {
         "Accept": "*/*",
-        "Accept-Encoding": "gzip, deflate",
-        "Connection": "keep-alive",
+        "Accept-Encoding": "identity;q=1, *;q=0",
+        "Accept-Language": "zh-CN,zh;q=0.9,en;q=0.8,en-GB;q=0.7,en-US;q=0.6",
         "Cache-Control": "no-cache",
     }
 
@@ -158,8 +158,8 @@ async def get_content_length(
                     )
                     break
 
-        # 策略2：退避到GET请求获取Content-Length
-        logger.debug(_("尝试使用GET请求获取Content-Length"))
+        # 策略2：退避到GET Stream请求获取Content-Length
+        logger.debug(_("尝试使用GET Stream请求获取Content-Length"))
         try:
             async with aclient.stream(
                 "GET", url, headers=optimized_headers
@@ -172,6 +172,10 @@ async def get_content_length(
                         _("GET请求成功获取Content-Length: {0}").format(content_length)
                     )
                     return int(content_length)
+                else:
+                    logger.debug(
+                        _("策略2: 无法通过GET Stream获取Content-Length，退避到策略3")
+                    )
 
                 # 如果GET请求也没有Content-Length，说明可能是动态内容或chunked传输
                 # 这种情况下返回0，让下载器使用流式下载
@@ -180,7 +184,31 @@ async def get_content_length(
                         url
                     )
                 )
-                return 0
+
+        except Exception as e:
+            logger.error(_("GET Stream请求也失败：{0}，错误：{1}").format(url, str(e)))
+            trace_logger.error(traceback.format_exc())
+            return 0
+
+        # 策略3：退避到GET请求获取Content-Length
+        logger.debug(_("尝试使用GET请求获取Content-Length"))
+        try:
+            response = await aclient.get(url, headers=optimized_headers)
+            response.raise_for_status()
+
+            content_length = response.headers.get("Content-Length")
+            if content_length and int(content_length) > 0:
+                logger.debug(
+                    _("GET请求成功获取Content-Length: {0}").format(content_length)
+                )
+                return int(content_length)
+
+            # 如果GET请求也没有Content-Length，说明可能是动态内容或chunked传输
+            # 这种情况下返回0，让下载器使用流式下载
+            logger.debug(
+                _("GET请求成功但无Content-Length头，将使用流式下载：{0}").format(url)
+            )
+            return 0
 
         except Exception as e:
             logger.error(_("GET请求也失败：{0}，错误：{1}").format(url, str(e)))
