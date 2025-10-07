@@ -90,12 +90,20 @@ class M3U8DownloadMixin:
                                         )
                                     )
 
+                                ts_response = None
                                 try:
+                                    # 2025/oct/08: 删除aclient.headers的referer与cookie字段，避免部分服务器拒绝访问
+                                    self.aclient.headers.pop("referer", None)
+                                    self.aclient.headers.pop("cookie", None)
                                     ts_request = self.aclient.build_request(
-                                        "GET", ts_url, headers=self.headers
+                                        "GET",
+                                        ts_url,
+                                        timeout=15.0,
                                     )
                                     ts_response = await self.aclient.send(
-                                        ts_request, stream=True
+                                        ts_request,
+                                        stream=True,
+                                        follow_redirects=True,
                                     )
 
                                     async for chunk in ts_response.aiter_bytes(
@@ -127,7 +135,8 @@ class M3U8DownloadMixin:
                                     continue
 
                                 finally:
-                                    await ts_response.aclose()
+                                    if ts_response is not None:
+                                        await ts_response.aclose()
                             else:
                                 logger.debug(
                                     _("跳过已下载的片段，URL：{0}").format(
