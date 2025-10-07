@@ -264,40 +264,106 @@ def get_chunk_size(file_size: int) -> int:
         return 1 * 1024 * 1024  # 使用1MB的块大小 (Use a chunk size of 1MB)
 
 
-async def get_segments_from_m3u8(url: str) -> Optional[List[Segment]]:
+async def get_segments_from_m3u8(
+    url: str, visited_urls: Optional[set] = None, depth: int = 0, max_depth: int = 5
+) -> Optional[List[Segment]]:
     """
-    从给定的m3u8文件中获取segments
+    从给定的m3u8文件中获取segments，支持嵌套m3u8文件并防止无限递归
 
     Args:
         url (str): m3u8文件的URL
+        visited_urls (Optional[set]): 已访问过的URL集合，用于防止循环引用
+        depth (int): 当前递归深度
+        max_depth (int): 最大递归深度，默认为5
 
     Returns:
         Optional[List[Segment]]: m3u8文件中的segments列表，如果加载失败则返回None
     """
+    # 初始化已访问URL集合
+    if visited_urls is None:
+        visited_urls = set()
+
+    # 检查递归深度
+    if depth >= max_depth:
+        logger.warning(
+            _("m3u8文件嵌套深度超过最大限制 {0}，停止解析：{1}").format(max_depth, url)
+        )
+        return None
+
+    # 检查是否已访问过此URL（防止循环引用）
+    if url in visited_urls:
+        logger.warning(_("检测到m3u8循环引用，跳过URL：{0}").format(url))
+        return None
+
+    visited_urls.add(url)
+
     # 应该先测试m3u8文件是否存在，以避免出现错误
     try:
         m3u8_obj = m3u8.load(url)
     except HTTPError as e:
-        logger.error(_("无法加载m3u8文件：{0}，错误详情：{1}".format(url, e)))
+        logger.error(_("无法加载m3u8文件：{0}，错误详情：{1}").format(url, e))
         trace_logger.error(traceback.format_exc())
         return None
     except Exception as e:
-        logger.error(_("加载m3u8文件时发生错误：{0}".format(e)))
+        logger.error(_("加载m3u8文件时发生错误：{0}").format(e))
         trace_logger.error(traceback.format_exc())
         return None
 
     # 如果没有segments说明m3u8可能存在嵌套, 需要尝试获取嵌套的m3u8文件
     segments = m3u8_obj.segments
     if not segments:
-        logger.debug(_("未找到m3u8文件的segments, 尝试获取嵌套的m3u8文件"))
-        # 尝试获取嵌套的m3u8文件
-        nested_m3u8_url = m3u8_obj.playlists[0].absolute_uri
-        segments = await get_segments_from_m3u8(nested_m3u8_url)
+        logger.debug(
+            _(
+                "未找到m3u8文件的segments (深度: {0}/{1}), 尝试获取嵌套的m3u8文件"
+            ).format(depth + 1, max_depth)
+        )
+
+        # 检查是否有嵌套的playlist
+        if not m3u8_obj.playlists:
+            logger.warning(
+                _("m3u8文件中既无segments也无嵌套playlists，可能直播结束或格式不支持")
+            )
+            return None
+
+        # 尝试获取嵌套的m3u8文件（通常选择第一个或质量最高的）
+        try:
+            # 优先选择质量最高的流
+            best_playlist = max(
+                m3u8_obj.playlists,
+                key=lambda p: (
+                    getattr(p.stream_info, "bandwidth", 0)  # 使用带宽作为质量指标
+                    if hasattr(p, "stream_info") and p.stream_info
+                    else 0
+                ),
+            )
+            nested_m3u8_url = best_playlist.absolute_uri
+            logger.debug(
+                _("选择嵌套m3u8 URL: {0} (带宽: {1})").format(
+                    nested_m3u8_url,
+                    (
+                        getattr(best_playlist.stream_info, "bandwidth", _("未知"))
+                        if hasattr(best_playlist, "stream_info")
+                        and best_playlist.stream_info
+                        else _("未知")
+                    ),
+                )
+            )
+        except (IndexError, AttributeError) as e:
+            logger.error(_("获取嵌套m3u8 URL失败：{0}").format(e))
+            trace_logger.error(traceback.format_exc())
+            return None
+
+        # 递归获取嵌套的segments
+        segments = await get_segments_from_m3u8(
+            nested_m3u8_url, visited_urls, depth + 1, max_depth
+        )
+
         # 再次检查segments是否存在
         if not segments:
             logger.warning(
                 _("未找到嵌套m3u8文件的segments, 可能直播结束或该直播非m3u8格式")
             )
+
     return segments
 
 
