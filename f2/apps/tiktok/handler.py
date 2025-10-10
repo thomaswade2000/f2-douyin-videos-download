@@ -53,7 +53,7 @@ rich_prompt = RichConsoleManager().rich_prompt
 
 
 TK_LIVE_STATUS_MAPPING = {
-    # 1: _("准备中"),
+    1: _("已关播"),
     2: _("直播中"),
     # 3: _("直播中"),
     4: _("已关播"),
