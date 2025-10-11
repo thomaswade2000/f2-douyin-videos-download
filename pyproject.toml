@@ -93,6 +93,8 @@ dev = [
     "pytest-asyncio==0.25.0",
     "types-aiofiles",
     "types-protobuf",
+    "coverage",
+    "pytest-cov",
 ]
 
 [project.scripts]
