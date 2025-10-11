@@ -768,6 +768,7 @@ class BaseDownloader(M3U8DownloadMixin, BaseCrawler):
         base_path: Union[str, Path],
         file_name: str,
         file_suffix: Optional[str],
+        stream_status_callback: Any = None,
     ) -> None:
         """
         初始化m3u8流视频下载任务。如果文件已经存在，则跳过下载。否则，创建一个新的异步下载任务。
@@ -780,6 +781,7 @@ class BaseDownloader(M3U8DownloadMixin, BaseCrawler):
             file_name (str): 文件名称 (File name)
             base_path (Union[str, Path]): 基础路径 (Base path)
             file_suffix (Optional[str]): 文件后缀 (File suffix)
+            stream_status_callback: 直播状态检查回调函数（可选）
         """
         # 文件路径
         file_path = f"{file_name}{file_suffix}"
@@ -804,7 +806,9 @@ class BaseDownloader(M3U8DownloadMixin, BaseCrawler):
             )
             await self.progress.update(task_id, state="starting")
             download_task = asyncio.create_task(
-                self.download_m3u8_stream(task_id, m3u8_url, full_path)
+                self.download_m3u8_stream(
+                    task_id, m3u8_url, full_path, stream_status_callback
+                )
             )
             self.download_tasks.append(download_task)
 

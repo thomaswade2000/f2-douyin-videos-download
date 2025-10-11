@@ -1,6 +1,7 @@
 # path: f2/apps/douyin/dl.py
 
 import asyncio
+import traceback
 from typing import Any, Dict, List, Optional, Union
 
 from rich.live import Live
@@ -11,7 +12,7 @@ from f2.apps.douyin.utils import format_file_name, json_2_lrc
 from f2.cli.cli_console import RichConsoleManager
 from f2.dl.base_downloader import BaseDownloader
 from f2.i18n.translator import _
-from f2.log.logger import logger
+from f2.log.logger import logger, trace_logger
 from f2.utils.time.filter import filter_by_date_interval
 from f2.utils.time.timestamp import get_timestamp, timestamp_2_str
 
@@ -27,6 +28,7 @@ class DouyinDownloader(BaseDownloader):
             )
 
         super().__init__(kwargs)
+        self._live_status_callback_user_id = None  # 用于回调函数的user_id
 
     async def save_last_aweme_id(self, sec_user_id: str, aweme_id: str) -> None:
         """
@@ -452,6 +454,40 @@ class DouyinDownloader(BaseDownloader):
         # 执行下载任务
         await self.execute_tasks()
 
+    async def _check_live_status_callback(self) -> str:
+        """
+        直播状态检查回调函数
+
+        Returns:
+            str: 直播状态描述
+        """
+        if not self._live_status_callback_user_id:
+            return _("无法验证直播状态（缺少用户ID）")
+
+        # 动态导入避免循环依赖
+        from f2.apps.douyin.handler import DouyinHandler
+
+        try:
+            handler = DouyinHandler(self.kwargs)
+            live_status = await handler.fetch_user_live_status(
+                self._live_status_callback_user_id
+            )
+
+            # 映射直播状态
+            status_map = {
+                0: _("未开播"),
+                1: _("已关播"),
+                2: _("直播中"),
+                4: _("已关播"),
+            }
+            status_text = status_map.get(live_status.live_status, _("未知状态"))
+
+            return _("直播状态：{0}").format(status_text)
+        except Exception as e:
+            logger.error(_("验证直播状态失败：{0}").format(e))
+            trace_logger.error(traceback.format_exc())
+            return _("无法验证直播状态（异常：{0}）").format(str(e))
+
     async def handler_stream(
         self, kwargs: Dict, webcast_data_dict: Dict, user_path: Any
     ) -> None:
@@ -463,6 +499,9 @@ class DouyinDownloader(BaseDownloader):
             aweme_data_dict (Dict): 直播数据字典
             user_path (Any): 用户目录路径
         """
+        # 保存 kwargs 供回调函数使用
+        self.kwargs = kwargs
+
         custom_fields = {
             "create": timestamp_2_str(timestamp=get_timestamp(unit="sec")),
             "nickname": webcast_data_dict.get("nickname", ""),
@@ -488,6 +527,14 @@ class DouyinDownloader(BaseDownloader):
         )
         webcast_url = webcast_data_dict.get("m3u8_pull_url", {}).get("FULL_HD1")
 
+        # 设置回调函数需要的user_id
+        self._live_status_callback_user_id = webcast_data_dict.get("user_id", "")
+
         await self.initiate_m3u8_download(
-            _("直播"), webcast_url, base_path, webcast_name, ".flv"
+            _("直播"),
+            webcast_url,
+            base_path,
+            webcast_name,
+            ".flv",
+            stream_status_callback=self._check_live_status_callback,
         )

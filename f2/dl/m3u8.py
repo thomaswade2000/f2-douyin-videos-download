@@ -40,8 +40,17 @@ class M3U8DownloadMixin:
         task_id: TaskID,
         url: str,
         full_path: Union[str, Path],
+        stream_status_callback: Any = None,
     ) -> None:
-        """下载m3u8流视频"""
+        """
+        下载m3u8流视频
+
+        Args:
+            task_id: 任务ID
+            url: m3u8文件URL
+            full_path: 保存路径
+            stream_status_callback: 直播状态检查回调函数（可选），用于在遇到错误时验证直播状态
+        """
         async with self.semaphore:
             full_path = self._ensure_path(full_path)
             total_downloaded = 10240000
@@ -54,6 +63,23 @@ class M3U8DownloadMixin:
 
                     if not segments:
                         logger.debug(_("m3u8片段为空，直播流已结束"))
+
+                        # 调用回调函数验证直播状态
+                        if stream_status_callback:
+                            logger.debug(_("正在验证直播状态..."))
+                            try:
+                                stream_status = await stream_status_callback()
+                                if stream_status:
+                                    logger.info(
+                                        _(
+                                            "[green]✓[/green] 直播状态验证完成：{0}"
+                                        ).format(stream_status)
+                                    )
+                            except Exception as callback_error:
+                                logger.warning(
+                                    _("验证直播状态时出错：{0}").format(callback_error)
+                                )
+
                         logger.info(
                             _("[green][  完成  ]：{0}[/green]").format(
                                 Path(full_path).name
@@ -150,10 +176,43 @@ class M3U8DownloadMixin:
                     await asyncio.sleep(segment.duration)
 
                 except httpx.HTTPStatusError as e:
-                    if e.response.status_code == 404:
-                        logger.debug(_("m3u8文件或ts文件未找到，当前直播已结束"))
-                    elif e.response.status_code == 504:
-                        logger.warning(_("[red]网关超时，无法下载直播流[/red]"))
+                    # 检测到可能的直播结束信号（404或5xx错误）
+                    status_code = e.response.status_code
+                    is_stream_end_error = status_code == 404 or (
+                        500 <= status_code < 600
+                    )
+
+                    if is_stream_end_error and stream_status_callback:
+                        # 调用回调函数验证直播状态
+                        logger.debug(
+                            _(
+                                "检测到HTTP错误（状态码: {0}），正在验证直播状态..."
+                            ).format(status_code)
+                        )
+                        try:
+                            stream_status = await stream_status_callback()
+                            if stream_status:
+                                logger.info(
+                                    _("[green]✓[/green] 直播状态验证完成：{0}").format(
+                                        stream_status
+                                    )
+                                )
+                        except Exception as callback_error:
+                            logger.warning(
+                                _("验证直播状态时出错：{0}").format(callback_error)
+                            )
+
+                    # 根据状态码输出不同的日志
+                    if status_code == 404:
+                        logger.debug(_("m3u8文件或ts文件未找到（404），当前直播已结束"))
+                    elif status_code == 504:
+                        logger.warning(_("[red]网关超时（504），无法下载直播流[/red]"))
+                    elif 500 <= status_code < 600:
+                        logger.warning(
+                            _(
+                                "[yellow]服务器错误（{0}），直播可能已结束[/yellow]"
+                            ).format(status_code)
+                        )
                     else:
                         logger.debug(_("HTTP错误：{0}").format(e))
                         logger.error(_("[red]m3u8文件下载失败，但文件已保存[/red]"))
@@ -163,7 +222,7 @@ class M3U8DownloadMixin:
                     )
                     await self.progress.update(
                         task_id,
-                        description=_("[red][  完成  ]：[/red]"),
+                        description=_("[green][  完成  ]：[/green]"),
                         filename=trim_filename(full_path.name, 45),
                         state="completed",
                         visible=False,
