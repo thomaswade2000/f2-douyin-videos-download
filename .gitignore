@@ -165,3 +165,6 @@ f2-secrets
 
 # Gemini
 .gemini/
+
+# local code
+windows_startup_bark/
