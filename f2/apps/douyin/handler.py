@@ -1869,8 +1869,8 @@ class DouyinHandler:
             logger.debug(
                 _("最大数量：{0} 每次请求数量：{1}").format(count, current_request_size)
             )
-            logger.debug(_("当前请求的 max_time：{0}".format(max_time)))
-            logger.debug(_("当前请求的 min_time：{0}".format(min_time)))
+            logger.debug(_("当前请求的 max_time：{0}").format(max_time))
+            logger.debug(_("当前请求的 min_time：{0}").format(min_time))
 
             async with DouyinCrawler(self.kwargs) as crawler:
                 params = UserFollowing(
