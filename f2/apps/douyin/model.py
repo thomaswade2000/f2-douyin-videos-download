@@ -106,6 +106,11 @@ class LiveChatSend(BaseLiveModel):
 
 
 # Model
+class UserShortInfo(BaseRequestModel):
+    # POST 请求, sec_user_ids 作为请求体
+    sec_user_ids: (
+        str  # JSON 格式的 sec_user_id 列表，如 ["sec_user_id1", "sec_user_id2"]
+    )
 
 
 class UserActiveStatus(BaseRequestModel):

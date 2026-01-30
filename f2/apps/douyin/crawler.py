@@ -47,6 +47,7 @@ from f2.apps.douyin.model import (
     UserMusicCollection,
     UserPost,
     UserProfile,
+    UserShortInfo,
 )
 from f2.apps.douyin.proto.douyin_webcast_pb2 import (
     BattleTeamTaskMessage,
@@ -128,6 +129,16 @@ class DouyinCrawler(BaseCrawler):
             urlencode(params.model_dump()),
         )
         logger.debug(_("用户活跃状态接口地址：{0}").format(endpoint))
+        return await self._fetch_post_json(endpoint, data=params.model_dump())
+
+    async def fetch_user_short_info(self, params: UserShortInfo):
+        endpoint = self.bogus_manager.model_2_endpoint(
+            self.headers.get("User-Agent"),
+            dyendpoint.USER_SHORT_INFO,
+            params.model_dump(),
+            params.sec_user_ids,
+        )
+        logger.debug(_("用户短信息接口地址：{0}").format(endpoint))
         return await self._fetch_post_json(endpoint, data=params.model_dump())
 
     async def fetch_user_post(self, params: UserPost):

@@ -42,6 +42,7 @@ from f2.apps.douyin.filter import (
     UserMusicCollectionFilter,
     UserPostFilter,
     UserProfileFilter,
+    UserShortInfoFilter,
 )
 from f2.apps.douyin.model import (
     FollowingUserLive,
@@ -74,6 +75,7 @@ from f2.apps.douyin.model import (
     UserMusicCollection,
     UserPost,
     UserProfile,
+    UserShortInfo,
 )
 from f2.apps.douyin.utils import (  # VerifyFpManager,
     AwemeIdFetcher,
@@ -233,6 +235,38 @@ class DouyinHandler:
                     )
                 )
             return user_status
+
+    async def fetch_user_short_info(
+        self,
+        sec_user_ids: List[str],
+    ) -> UserShortInfoFilter:
+        """
+        用于获取指定用户的短信息（批量获取用户基本信息）
+        (Used to get short info of specified users in batch)
+
+        Args:
+            sec_user_ids: List[str]: 用户ID列表 (List of User IDs)
+
+        Return:
+            user_info: UserShortInfoFilter: 用户短信息过滤器 (User short info filter)
+        """
+
+        if not sec_user_ids:
+            raise ValueError(_("`sec_user_ids`不能为空"))
+
+        # 将列表转换为 JSON 字符串格式
+        sec_user_ids_json = json.dumps(sec_user_ids)
+
+        async with DouyinCrawler(self.kwargs) as crawler:
+            params = UserShortInfo(sec_user_ids=sec_user_ids_json)
+            response = await crawler.fetch_user_short_info(params)
+            user_info = UserShortInfoFilter(response)
+            logger.info(user_info._to_raw())
+            if user_info.status_code != 0:
+                raise APIResponseError(
+                    _("`fetch_user_short_info`请求失败，请更换cookie或稍后再试")
+                )
+            return user_info
 
     async def get_or_add_user_data(
         self,

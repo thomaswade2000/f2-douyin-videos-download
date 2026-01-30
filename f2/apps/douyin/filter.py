@@ -3080,3 +3080,89 @@ class UserActiveStatusFilter(JSONModel):
             for prop_name in dir(self)
             if not prop_name.startswith("__") and not prop_name.startswith("_")
         }
+
+
+class UserShortInfoFilter(JSONModel):
+    @property
+    def status_code(self):
+        return self._get_attr_value("$.status_code")
+
+    @property
+    def user_list(self) -> List:
+        return self._get_attr_value("$.data") or []
+
+    @property
+    def uid(self):
+        return self._get_list_attr_value("$.data[*].uid")
+
+    @property
+    def sec_uid(self):
+        return self._get_list_attr_value("$.data[*].sec_uid")
+
+    @property
+    def short_id(self):
+        return self._get_list_attr_value("$.data[*].short_id")
+
+    @property
+    def unique_id(self):
+        return self._get_list_attr_value("$.data[*].unique_id")
+
+    @property
+    def nickname(self):
+        nicknames = self._get_list_attr_value("$.data[*].nickname")
+        if nicknames is None:
+            return []
+        return [replaceT(n) if n else n for n in nicknames]
+
+    @property
+    def nickname_raw(self):
+        return self._get_list_attr_value("$.data[*].nickname")
+
+    @property
+    def avatar_thumb(self):
+        return self._get_list_attr_value("$.data[*].avatar_thumb.url_list[0]")
+
+    @property
+    def avatar_medium(self):
+        return self._get_list_attr_value("$.data[*].avatar_medium.url_list[0]")
+
+    @property
+    def avatar_larger(self):
+        return self._get_list_attr_value("$.data[*].avatar_larger.url_list[0]")
+
+    @property
+    def follow_status(self):
+        return self._get_list_attr_value("$.data[*].follow_status")
+
+    @property
+    def follower_status(self):
+        return self._get_list_attr_value("$.data[*].follower_status")
+
+    @property
+    def signature(self):
+        signatures = self._get_list_attr_value("$.data[*].signature")
+        if signatures is None:
+            return []
+        return [replaceT(s) if s else s for s in signatures]
+
+    @property
+    def signature_raw(self):
+        return self._get_list_attr_value("$.data[*].signature")
+
+    @property
+    def is_verified(self):
+        return self._get_list_attr_value("$.data[*].custom_verify")
+
+    @property
+    def enterprise_verify_reason(self):
+        return self._get_list_attr_value("$.data[*].enterprise_verify_reason")
+
+    def _to_raw(self) -> Dict:
+        return self._data
+
+    def _to_dict(self) -> Dict:
+        return {
+            prop_name: getattr(self, prop_name)
+            for prop_name in dir(self)
+            if not prop_name.startswith("__") and not prop_name.startswith("_")
+        }

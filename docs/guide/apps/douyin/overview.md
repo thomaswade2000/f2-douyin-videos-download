@@ -52,6 +52,7 @@ outline: [2,3]
 | 作品弹幕列表信息      | `fetch_post_danmaku` |     🟢      |
 | 作品时间区间弹幕      | `fetch_post_time_danmaku` |     🟢      |
 | 用户活跃状态        | `fetch_user_active_status` |     🟢      |
+| 用户短信息          | `fetch_user_short_info` |     🟢      |
 :::
 
 ::: details utils接口列表
@@ -112,6 +113,7 @@ outline: [2,3]
 | 直播弹幕初始化接口地址 | `DouyinCrawler` | `fetch_live_im_fetch` |  🟢  |
 | 查询用户接口地址 | `DouyinCrawler` | `fetch_query_user` |  🟢  |
 | 用户活跃状态接口地址 | `DouyinCrawler` | `fetch_user_active_status` |  🟢  |
+| 用户短信息接口地址 | `DouyinCrawler` | `fetch_user_short_info` |  🟢  |
 | 直播弹幕接口地址 | `DouyinWebSocketCrawler` | `fetch_live_danmaku` |  🟢  |
 | 处理 WebSocket 消息 | `DouyinWebSocketCrawler` | `handle_wss_message` |  🟢  |
 | 发送 ack 包 | `DouyinWebSocketCrawler` | `send_ack` |  🟢  |
@@ -716,6 +718,26 @@ outline: [2,3]
 - 返回的 `active_status` 值：1 表示在线，0 表示离线
 - 包含最后活跃时间戳 `last_active_time`
 - 可用于实时监控关注用户的在线状态
+:::
+
+### 用户短信息 🟢
+
+异步方法，用于批量获取指定用户的简要信息。
+
+| 参数 | 类型 | 说明 |
+| :--- | :--- | :--- |
+| sec_user_ids | List[str] | 用户ID列表，最多35个 |
+
+| 返回 | 类型 | 说明 |
+| :--- | :--- | :--- |
+| UserShortInfoFilter | model | 用户短信息过滤器，包含用户数据的_to_raw、_to_dict、_to_list方法 |
+
+<<< @/snippets/douyin/user-short-info.py{17-30}
+
+::: tip :bulb: 提示
+- 支持批量查询多个用户的简要信息，最多支持35+个用户
+- 返回用户的基本信息：昵称、UID、头像、签名等
+- 可用于快速获取用户概览信息
 :::
 
 ## utils接口列表
