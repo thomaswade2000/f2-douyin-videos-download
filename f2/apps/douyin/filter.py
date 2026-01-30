@@ -3042,3 +3042,41 @@ class PostTimeDanmakuFilter(PostDanmakuFilter):
     @property
     def show_digg(self):
         return self._get_list_attr_value("$.danmaku_list[*].show_digg")
+
+
+class UserActiveStatusFilter(JSONModel):
+    @property
+    def user_active_list(self) -> List:
+        return self._get_attr_value("$.data") or []
+
+    @property
+    def sec_uid(self):
+        return self._get_list_attr_value("$.data[*].sec_user_id")
+
+    @property
+    def active_status(self):
+        """用户活跃状态: 1-在线, 0-离线"""
+        return self._get_list_attr_value("$.data[*].active_status")
+
+    @property
+    def last_active_time(self):
+        """最后活跃时间戳"""
+        return self._get_list_attr_value("$.data[*].last_active_time")
+
+    @property
+    def last_active_time_str(self):
+        """最后活跃时间字符串格式"""
+        times = self._get_list_attr_value("$.data[*].last_active_time")
+        if times is None:
+            return []
+        return [timestamp_2_str(str(t)) if t else None for t in times]
+
+    def _to_raw(self) -> Dict:
+        return self._data
+
+    def _to_dict(self) -> Dict:
+        return {
+            prop_name: getattr(self, prop_name)
+            for prop_name in dir(self)
+            if not prop_name.startswith("__") and not prop_name.startswith("_")
+        }

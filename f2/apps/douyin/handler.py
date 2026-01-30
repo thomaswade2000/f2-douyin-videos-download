@@ -1,6 +1,7 @@
 # path: f2/apps/douyin/handler.py
 
 import asyncio
+import json
 from pathlib import Path
 from typing import Any, AsyncGenerator, Dict, List, Optional, Union
 from urllib.parse import quote
@@ -28,6 +29,7 @@ from f2.apps.douyin.filter import (
     PostTimeDanmakuFilter,
     QueryUserFilter,
     SuggestWordFilter,
+    UserActiveStatusFilter,
     UserCollectionFilter,
     UserCollectsFilter,
     UserFollowerFilter,
@@ -57,6 +59,7 @@ from f2.apps.douyin.model import (
     PostTimeDanmaku,
     QueryUser,
     SuggestWord,
+    UserActiveStatus,
     UserCollection,
     UserCollects,
     UserCollectsVideo,
@@ -192,6 +195,44 @@ class DouyinHandler:
                     _("`fetch_user_profile`请求失败，请更换cookie或稍后再试")
                 )
             return user
+
+    async def fetch_user_active_status(
+        self,
+        sec_user_ids: List[str],
+        source: str = "heartbeat",
+    ) -> UserActiveStatusFilter:
+        """
+        用于获取指定用户的活跃状态（批量获取用户在线状态）
+        (Used to get active status of specified users in batch)
+
+        Args:
+            sec_user_ids: List[str]: 用户ID列表 (List of User IDs)
+            source: str: 来源标识，默认为 "heartbeat" (Source identifier)
+
+        Return:
+            user_status: UserActiveStatusFilter: 用户活跃状态过滤器 (User active status filter)
+        """
+
+        if not sec_user_ids:
+            raise ValueError(_("`sec_user_ids`不能为空"))
+
+        # 将列表转换为 JSON 字符串格式
+        sec_user_ids_json = json.dumps(sec_user_ids)
+
+        async with DouyinCrawler(self.kwargs) as crawler:
+            params = UserActiveStatus(
+                source=source,
+                sec_user_ids=sec_user_ids_json,
+            )
+            response = await crawler.fetch_user_active_status(params)
+            user_status = UserActiveStatusFilter(response)
+            if user_status.user_active_list is None:
+                raise APIResponseError(
+                    _(
+                        "`fetch_user_active_status`请求失败，登录已失效请更换Cookie后再试"
+                    )
+                )
+            return user_status
 
     async def get_or_add_user_data(
         self,

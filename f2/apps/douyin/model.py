@@ -106,6 +106,15 @@ class LiveChatSend(BaseLiveModel):
 
 
 # Model
+
+
+class UserActiveStatus(BaseRequestModel):
+    # POST 请求
+    source: str = "heartbeat"
+    sec_user_ids: str  # JSON 格式的 sec_user_id 列表
+    conv_ids: str = "[]"  # JSON 格式的会话ID列表，默认为空数组
+
+
 class UserProfile(BaseRequestModel):
     sec_user_id: str
 
