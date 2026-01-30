@@ -1327,10 +1327,8 @@ class DouyinHandler:
         if len(webcast_id) > 12 and len(webcast_id) == 19:
             logger.warning(
                 _(
-                    "直播ID：{0} 长度大于12位，如果使用的是APP分享链接，请使用`fetch_user_live_videos_by_room_id`接口".format(
-                        webcast_id
-                    )
-                )
+                    "直播ID：{0} 长度大于12位，如果使用的是APP分享链接，请使用`fetch_user_live_videos_by_room_id`接口"
+                ).format(webcast_id)
             )
             return UserLiveFilter(None)
 
