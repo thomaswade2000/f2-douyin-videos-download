@@ -503,6 +503,7 @@ class DouyinHandler:
 
         max_counts = max_counts or float("inf")
         videos_collected = 0
+        nickname_raw = sec_user_id  # 默认使用 sec_user_id，防止无作品时未初始化
 
         logger.info(_("处理用户：{0} 发布的作品").format(sec_user_id))
 
@@ -546,7 +547,8 @@ class DouyinHandler:
                 continue
 
             # 防止最后一页不包含任何作品导致无法获取nickname_raw
-            nickname_raw = video.nickname_raw[0]
+            if video.nickname_raw and len(video.nickname_raw) > 0:
+                nickname_raw = video.nickname_raw[0]
 
             logger.debug(_("当前请求的max_cursor：{0}").format(max_cursor))
             logger.debug(
@@ -708,7 +710,7 @@ class DouyinHandler:
         await self._send_bark_notification(
             _("[DouYin] 点赞作品下载"),
             _("用户：{0}\n" "作品数：{1}\n" "下载时间：{2}").format(
-                user.nickname_raw,
+                user.nickname_raw or _("未知用户"),
                 videos_collected,
                 timestamp_2_str(get_timestamp("sec")),
             ),
