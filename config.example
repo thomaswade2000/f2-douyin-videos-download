@@ -1,0 +1,13 @@
+# douyin.sh 本地配置文件
+# 复制此文件为 config 并填入你自己的信息：
+#   cp config.example config
+#
+# 修改后保存，运行 douyin.sh 时自动读取。
+# 命令行参数优先级高于此配置：
+#   显式传入主页链接/保存目录时，以命令行参数为准。
+
+# 你的抖音主页链接（用于下载点赞/收藏/发布作品）
+PROFILE_URL="https://www.douyin.com/user/<你的主页ID>"
+
+# 视频保存目录（相对路径相对于 ~/f2，也支持绝对路径）
+SAVE_PATH="./Downloads"
