@@ -1,6 +1,63 @@
 # path: f2/apps/douyin/db.py
 
+import time
+
 from f2.db.base_db import BaseDB
+
+
+class AsyncDownloadRecordDB(BaseDB):
+    """
+    下载记录数据库 (Download record database)
+
+    以作品唯一键（默认 {create}_{desc}）为粒度记录已完成下载的作品，
+    增量更新时仅查此库判断是否已下载，不依赖本地媒体文件是否存在。
+    """
+
+    TABLE_NAME = "download_records"
+
+    async def _create_table(self) -> None:
+        await super()._create_table()
+        fields = [
+            "file_key TEXT PRIMARY KEY",
+            "aweme_id TEXT",
+            "created_at TEXT",
+        ]
+        fields_sql = ", ".join(fields)
+        await self.execute(
+            f"""CREATE TABLE IF NOT EXISTS {self.TABLE_NAME} ({fields_sql})"""
+        )
+        await self.commit()
+
+    async def add_record(self, file_key: str, aweme_id: str = "") -> None:
+        await self.execute(
+            f"INSERT OR REPLACE INTO {self.TABLE_NAME} (file_key, aweme_id, created_at) VALUES (?, ?, ?)",
+            (file_key, aweme_id, time.strftime("%Y-%m-%d %H:%M:%S")),
+        )
+        await self.commit()
+
+    async def key_exists(self, file_key: str) -> bool:
+        cursor = await self.execute(
+            f"SELECT 1 FROM {self.TABLE_NAME} WHERE file_key=?", (file_key,)
+        )
+        return await cursor.fetchone() is not None
+
+    async def get_all_keys(self) -> set:
+        cursor = await self.execute(f"SELECT file_key FROM {self.TABLE_NAME}")
+        rows = await cursor.fetchall()
+        return {row[0] for row in rows}
+
+    async def delete_record(self, file_key: str) -> None:
+        await self.execute(
+            f"DELETE FROM {self.TABLE_NAME} WHERE file_key=?", (file_key,)
+        )
+        await self.commit()
+
+    async def __aenter__(self):
+        await self.connect()
+        return self
+
+    async def __aexit__(self, exc_type, exc_val, exc_tb):
+        await self.close()
 
 
 class AsyncUserDB(BaseDB):

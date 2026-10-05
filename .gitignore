@@ -138,8 +138,12 @@ Download/
 
 # DataBase
 .db
+*.db
+*.db-shm
+*.db-wal
 *_users.db
 *_videos.db
+*_downloads.db
 
 # Compress
 *.zip

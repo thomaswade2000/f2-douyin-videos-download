@@ -1547,27 +1547,35 @@ def rename_user_folder(old_path: Path, new_nickname: str) -> Path:
 
 
 def create_or_rename_user_folder(
-    kwargs: dict, local_user_data: dict, current_nickname: str
+    kwargs: dict,
+    sec_user_id: str,
+    local_user_data: dict,
+    current_nickname: str,
 ) -> Path:
     """
     创建或重命名用户目录 (Create or rename user directory)
 
+    目录名为 `昵称(sec_user_id)` 格式：人类通过昵称识别，
+    程序通过括号内的 ID 识别，作者改昵称不影响目录归属判断。
+
     Args:
         kwargs (dict): 配置参数 (Conf parameters)
+        sec_user_id (str): 用户唯一标识 (User unique ID)
         local_user_data (dict): 本地用户数据 (Local user data)
         current_nickname (str): 当前用户昵称 (Current user nickname)
 
     Returns:
         user_path (Path): 用户目录路径 (User directory path)
     """
-    user_path = create_user_folder(kwargs, current_nickname)
+    folder_name = f"{current_nickname}({sec_user_id})"
+    user_path = create_user_folder(kwargs, folder_name)
 
     if not local_user_data:
         return user_path
 
     if local_user_data.get("nickname") != current_nickname:
         # 昵称不一致，触发目录更新操作
-        user_path = rename_user_folder(user_path, current_nickname)
+        user_path = rename_user_folder(user_path, folder_name)
 
     return user_path
 

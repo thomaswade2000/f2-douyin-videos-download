@@ -10,7 +10,7 @@ from f2.i18n.translator import _
 from f2.log.logger import logger
 from f2.dl.base_downloader import BaseDownloader
 from f2.utils.utils import get_timestamp, timestamp_2_str, filter_by_date_interval
-from f2.apps.douyin.db import AsyncUserDB
+from f2.apps.douyin.db import AsyncUserDB, AsyncDownloadRecordDB
 from f2.apps.douyin.utils import format_file_name, json_2_lrc
 from f2.cli.cli_console import RichConsoleManager
 
@@ -25,6 +25,29 @@ class DouyinDownloader(BaseDownloader):
             )
 
         super().__init__(kwargs)
+
+        # 加载已下载记录，增量更新时优先查库而非查文件
+        self.download_record_keys: set = set()
+        self._download_record_db_name = kwargs.get(
+            "download_record_db", "douyin_downloads.db"
+        )
+        self._pending_download_keys: list = []
+
+    async def _load_download_records(self) -> None:
+        try:
+            async with AsyncDownloadRecordDB(self._download_record_db_name) as db:
+                self.download_record_keys = await db.get_all_keys()
+        except Exception as e:
+            logger.warning(_("加载下载记录失败，将回退为文件存在判断：{0}").format(e))
+            self.download_record_keys = set()
+
+    async def _record_downloaded(self, file_key: str, aweme_id: str = "") -> None:
+        try:
+            async with AsyncDownloadRecordDB(self._download_record_db_name) as db:
+                await db.add_record(file_key, aweme_id)
+        except Exception as e:
+            logger.warning(_("写入下载记录失败：{0}").format(e))
+        self.download_record_keys.add(file_key)
 
     async def save_last_aweme_id(self, sec_user_id: str, aweme_id: int) -> None:
         """
@@ -79,6 +102,10 @@ class DouyinDownloader(BaseDownloader):
             logger.warning(_("没有找到符合条件的作品，请检查`interval`参数是否正确"))
             return
 
+        # 加载已下载记录（增量更新依据）
+        await self._load_download_records()
+        self._pending_download_keys = []
+
         # 使用 Rich 的 Live 管理器
         with Live(
             console=RichConsoleManager().rich_console,
@@ -97,6 +124,15 @@ class DouyinDownloader(BaseDownloader):
             live.update(Rule(_("当前任务处理完成")))
 
             await self.execute_tasks()
+
+            # 记录本次下载成功的作品（以主要文件真实存在为验证，写入后可安全清理媒体文件）
+            for file_key, aweme_id, primary_path, is_folder in self._pending_download_keys:
+                if is_folder:
+                    downloaded = primary_path.exists() and any(primary_path.iterdir())
+                else:
+                    downloaded = primary_path.exists()
+                if downloaded:
+                    await self._record_downloaded(file_key, aweme_id)
 
     async def handler_download(
         self, kwargs: Dict, aweme_data_dict: Dict, user_path: Any
@@ -121,6 +157,14 @@ class DouyinDownloader(BaseDownloader):
         self.kwargs = kwargs
         self.aweme_data_dict = aweme_data_dict
 
+        # 增量更新：已下载的作品直接跳过（查库，不依赖文件是否存在）
+        file_key = format_file_name(
+            kwargs.get("naming", "{create}_{desc}"), aweme_data_dict
+        )
+        if file_key in self.download_record_keys:
+            logger.info(_("[cyan][  已下载  ]: {0}[/cyan]").format(file_key))
+            return
+
         aweme_prohibited = aweme_data_dict.get("is_prohibited")
         aweme_status = aweme_data_dict.get("private_status")
         aweme_type = aweme_data_dict.get("aweme_type")
@@ -140,10 +184,22 @@ class DouyinDownloader(BaseDownloader):
                 if self.kwargs.get(task_name):
                     await task_func()
 
+            primary_path = None
+            is_folder = False
             if aweme_type in [0, 4, 55, 61, 109, 201]:
                 await self.download_video()
+                primary_path = self.base_path / f"{file_key}_video.mp4"
+                is_folder = False
             elif aweme_type == 68:
                 await self.download_images()
+                primary_path = self.base_path
+                is_folder = True
+
+            # 加入待记录列表（下载任务执行完成后统一写入数据库）
+            if primary_path is not None:
+                self._pending_download_keys.append(
+                    (file_key, self.aweme_id, primary_path, is_folder)
+                )
 
         # 保存最后一个 aweme_id
         await self.save_last_aweme_id(self.sec_user_id, self.aweme_id)

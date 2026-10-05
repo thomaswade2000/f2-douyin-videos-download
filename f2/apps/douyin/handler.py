@@ -198,7 +198,7 @@ class DouyinHandler:
 
         # 设置用户目录
         user_path = create_or_rename_user_folder(
-            kwargs, local_user_data, current_nickname
+            kwargs, sec_user_id, local_user_data, current_nickname
         )
 
         # 如果用户不在数据库中，将其添加到数据库
